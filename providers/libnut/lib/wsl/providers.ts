@@ -3,7 +3,7 @@ import {
   ScreenProviderInterface, WindowProviderInterface
 } from "@nut-tree/provider-interfaces";
 import { Button, ColorMode, Image, Key, Point, Region, Size } from "@nut-tree/shared";
-import { WindowsHostClient } from "./host-client";
+import { commandTimeout, WindowsHostClient } from "./host-client";
 
 function integer(value: number, name: string, minimum = -2147483648, maximum = 2147483647): number {
   if (!Number.isInteger(value) || value < minimum || value > maximum) throw new Error(`Invalid ${name}: ${value}`);
@@ -44,16 +44,18 @@ class WindowsKeyboard implements KeyboardProviderInterface {
   constructor(private readonly host: WindowsHostClient) {}
   setKeyboardDelay(value: number): void { this.delay = delay(value); }
   async type(text: string): Promise<void> {
-    await this.host.request("type", { text, delay: this.delay }, 30000 + text.length * this.delay);
+    // KeyboardClass already spaces characters using its current public config.
+    // Match native typeString: provider delays apply to key operations only.
+    await this.host.request("type", { text, delay: 0 });
   }
   async click(...keys: Key[]): Promise<void> {
-    await this.host.request("keyClick", { keys: keys.map(keyName), delay: this.delay });
+    await this.host.request("keyClick", { keys: keys.map(keyName), delay: this.delay }, commandTimeout(this.delay));
   }
   async pressKey(...keys: Key[]): Promise<void> {
-    await this.host.request("keys", { keys: keys.map(keyName), down: true, delay: this.delay });
+    await this.host.request("keys", { keys: keys.map(keyName), down: true, delay: this.delay }, commandTimeout(this.delay));
   }
   async releaseKey(...keys: Key[]): Promise<void> {
-    await this.host.request("keys", { keys: keys.map(keyName), down: false, delay: this.delay });
+    await this.host.request("keys", { keys: keys.map(keyName), down: false, delay: this.delay }, commandTimeout(this.delay));
   }
 }
 
@@ -68,29 +70,29 @@ class WindowsMouse implements MouseProviderInterface {
     throw new Error(`Invalid mouse button: ${value}`);
   }
   async setMousePosition(position: Point): Promise<void> {
-    await this.host.request("moveMouse", { x: integer(position.x, "x"), y: integer(position.y, "y"), delay: this.delay });
+    await this.host.request("moveMouse", { x: integer(position.x, "x"), y: integer(position.y, "y"), delay: this.delay }, commandTimeout(this.delay));
   }
   async currentMousePosition(): Promise<Point> {
     const { result } = await this.host.request<{ x: number; y: number }>("cursorPosition");
     return new Point(integer(result.x, "cursor x"), integer(result.y, "cursor y"));
   }
   async click(button: Button): Promise<void> {
-    await this.host.request("click", { button: this.button(button), count: 1, delay: this.delay });
+    await this.host.request("click", { button: this.button(button), count: 1, delay: this.delay }, commandTimeout(this.delay));
   }
   async doubleClick(button: Button): Promise<void> {
-    await this.host.request("click", { button: this.button(button), count: 2, delay: this.delay });
+    await this.host.request("click", { button: this.button(button), count: 2, delay: this.delay }, commandTimeout(this.delay));
   }
   leftClick(): Promise<void> { return this.click(Button.LEFT); }
   rightClick(): Promise<void> { return this.click(Button.RIGHT); }
   middleClick(): Promise<void> { return this.click(Button.MIDDLE); }
   async pressButton(button: Button): Promise<void> {
-    await this.host.request("mouseButton", { button: this.button(button), down: true, delay: this.delay });
+    await this.host.request("mouseButton", { button: this.button(button), down: true, delay: this.delay }, commandTimeout(this.delay));
   }
   async releaseButton(button: Button): Promise<void> {
-    await this.host.request("mouseButton", { button: this.button(button), down: false, delay: this.delay });
+    await this.host.request("mouseButton", { button: this.button(button), down: false, delay: this.delay }, commandTimeout(this.delay));
   }
   private async scroll(amount: number, horizontal: boolean): Promise<void> {
-    await this.host.request("scroll", { amount: integer(amount, "scroll amount"), horizontal, delay: this.delay });
+    await this.host.request("scroll", { amount: integer(amount, "scroll amount"), horizontal, delay: this.delay }, commandTimeout(this.delay));
   }
   scrollUp(amount: number): Promise<void> { return this.scroll(amount, false); }
   scrollDown(amount: number): Promise<void> { return this.scroll(-amount, false); }
@@ -116,7 +118,7 @@ class WindowsScreen implements ScreenProviderInterface {
     if (!Number.isFinite(opacity) || opacity < 0 || opacity > 1) throw new Error("Opacity must be between 0 and 1");
     const milliseconds = integer(duration, "highlight duration", 0);
     await this.host.request("highlight", { x: integer(region.left, "left"), y: integer(region.top, "top"),
-      width: integer(region.width, "width", 1), height: integer(region.height, "height", 1), duration: milliseconds, opacity }, 30000 + milliseconds);
+      width: integer(region.width, "width", 1), height: integer(region.height, "height", 1), duration: milliseconds, opacity }, commandTimeout(milliseconds));
   }
   async screenSize(): Promise<Region> {
     const { result } = await this.host.request<{ width: number; height: number }>("screenSize");

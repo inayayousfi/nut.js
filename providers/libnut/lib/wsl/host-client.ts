@@ -6,6 +6,19 @@ const maxRequestBytes = 1024 * 1024;
 const maxImageBytes = 128 * 1024 * 1024;
 const maxHeaderBytes = 1024 * 1024;
 const defaultTimeout = 30000;
+const maxTimeout = 2147483647;
+
+export function commandTimeout(duration = 0): number {
+  const timeout = defaultTimeout + duration;
+  validateTimeout(timeout);
+  return timeout;
+}
+
+function validateTimeout(timeout: number): void {
+  if (!Number.isInteger(timeout) || timeout < 1 || timeout > maxTimeout) {
+    throw new Error(`Windows host timeout must be between 1 and ${maxTimeout} ms`);
+  }
+}
 
 export interface HostResponse<T> {
   result: T;
@@ -61,6 +74,9 @@ export class WindowsHostClient {
   ) {}
 
   async request<T>(command: string, args: Record<string, unknown> = {}, timeout = defaultTimeout): Promise<HostResponse<T>> {
+    // Validate before starting the helper or sending an action. Node replaces
+    // overflowing timer delays with 1 ms, which would fail after input occurs.
+    validateTimeout(timeout);
     if (this.failure) throw this.failure;
     if (!this.ready) this.ready = this.start();
     await this.ready;

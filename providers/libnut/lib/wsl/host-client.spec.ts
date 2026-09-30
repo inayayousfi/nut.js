@@ -1,7 +1,7 @@
 import { ChildProcessWithoutNullStreams } from "child_process";
 import { EventEmitter } from "events";
 import { PassThrough, Writable } from "stream";
-import { WindowsHostClient } from "./host-client";
+import { commandTimeout, WindowsHostClient } from "./host-client";
 
 jest.mock("fs", () => ({ existsSync: jest.fn(() => true) }));
 
@@ -69,6 +69,11 @@ describe("WindowsHostClient", () => {
     remote.child.stdout.emit("data", Buffer.from('{"id":2,"error":"input blocked","byteLength":0}\n'));
     await rejected;
     expect(remote.requests.filter(request => request.command === "click")).toHaveLength(1);
+    const next = remote.client.request("screenSize");
+    await Promise.resolve();
+    remote.reply(3, { width: 100, height: 50 });
+    expect((await next).result).toEqual({ width: 100, height: 50 });
+    expect(remote.spawn).toHaveBeenCalledTimes(1);
   });
 
   it.each([
@@ -122,5 +127,33 @@ describe("WindowsHostClient", () => {
     const remote = setup();
     await expect(remote.client.request("type", { text: "a".repeat(1024 * 1024) })).rejects.toThrow("exceeds 1 MiB");
     expect(remote.requests.map(request => request.command)).toEqual(["hello"]);
+  });
+
+  it("waits for accepted delays above 30 seconds", async () => {
+    jest.useFakeTimers();
+    const remote = setup();
+    const response = remote.client.request("keys", { keys: ["a"], down: true, delay: 60000 }, commandTimeout(60000));
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    jest.advanceTimersByTime(60000);
+    remote.reply(2, null);
+    expect(await response).toEqual({ result: null, pixels: Buffer.alloc(0) });
+    expect(remote.child.stdin.writableEnded).toBe(false);
+  });
+
+  it.each([0, -1, NaN, Infinity, 1.5, 2147483648, 2400030000])("rejects invalid timeout %s before starting the helper", async timeout => {
+    const remote = setup();
+    await expect(remote.client.request("type", {}, timeout)).rejects.toThrow("timeout");
+    expect(remote.spawn).not.toHaveBeenCalled();
+    expect(remote.requests).toHaveLength(0);
+  });
+
+  it("accepts the exact maximum timer delay without shortening it", async () => {
+    jest.useFakeTimers();
+    const remote = setup();
+    const response = remote.client.request("screenSize", {}, 2147483647);
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    jest.advanceTimersByTime(60000);
+    remote.reply(2, { width: 100, height: 50 });
+    expect((await response).result).toEqual({ width: 100, height: 50 });
   });
 });

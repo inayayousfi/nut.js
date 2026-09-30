@@ -296,7 +296,15 @@ reports a missing-helper error rather than compiling it or silently controlling
 the Linux desktop. The native package pin must be updated to that release when
 the two contributions are integrated.
 
-The helper exits when its command pipe closes and releases input that it held.
+Input command timeouts include the configured provider delay. A command timeout
+must fit Node.js's maximum timer delay of 2,147,483,647 ms. Highlight durations
+above 2,147,453,647 ms are rejected before sending the command, leaving 30 seconds
+for completion. String typing uses the public keyboard delay without an
+additional helper delay.
+
+The helper exits when its command pipe closes and attempts to release input
+that it held. Windows can reject those releases; failed releases remain tracked
+while the helper is running and shutdown failures are reported on standard error.
 Idle helpers do not keep completed Node.js scripts alive. A failed or timed-out
 command is not automatically repeated because a click or keystroke might
 already have reached Windows.
